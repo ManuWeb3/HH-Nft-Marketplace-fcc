@@ -3,6 +3,7 @@ pragma solidity ^0.8.7;
 
 // Not inherited, it's a marketplace, not an NFT
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 error NftMarketplace__PriceMustBeAboveZero();
 error NftMarketplace__NotYetApprovedForMarketplace();
@@ -11,8 +12,10 @@ error NftMarketplace__AlreadyListed(address nftAddress, uint256 tokenId);
 error NftMarketplace__NotOwner();
 error NftMarketplace__NotListed();
 error NftMarketplace__PriceNotMet(address nftAddress, uint256 tokenId, uint256 price);
+error NftMarketplace__NoProceedsYet();
+error NftMarketplace__Transactionfailed();
 
-contract NftMarketplace {
+contract NftMarketplace is ReentrancyGuard {
 // Types:
 // item listed by the 'Lister' / seller on the MP.
 struct Listing {
@@ -26,6 +29,19 @@ event ItemListed(
     address indexed NftAddress, 
     uint256 indexed tokenId, 
     uint256 price
+    );
+
+event ItemBought(
+    address indexed buyer,
+    address indexed nftAddress,
+    uint256 indexed tokenId,
+    uint256 price
+    );
+
+event ItemCanceled(
+    address indexed seller,
+    address indexed nftAddress,
+    uint256 indexed tokenId
 );
 
 // Mappings:
@@ -42,7 +58,7 @@ modifier notListed (address nftAddress, uint256 tokenId, address owner) {
     }
     _;
 }
-
+// custom-defined due to nftAddress, tokenId
 modifier isOwner (address nftAddress, uint256 tokenId, address spender) {
     IERC721 nft = IERC721(nftAddress);
     address owner = nft.ownerOf(tokenId);
@@ -101,11 +117,19 @@ isOwner (nftAddress, tokenId, msg.sender)
 }
 
 // NatSpec
-// 1 checks:
+// 1 check:
 // 1. IsItemListed on the MP
+
+// 4 SECURITY MEASURES:
+// 1. Reentrancy Guard (nonReentrant)
+// 2. Pull over Push (updtaed proceeds, no auto-send to Seller, let it withdraw())
+// 3. SafeTransferFrom() (avoided transferFrom())
+// 4. SafeTransferFrom() at the end, after all state-changes done
 function buyItem(address nftAddress, uint256 tokenId)
+external payable
 isListed(nftAddress, tokenId)
-external payable {
+nonReentrant
+ {
     Listing memory listedItem = s_listings[nftAddress][tokenId];
     // check the amount sent with the NFT's price
     if(msg.value < listedItem.price) {
@@ -121,9 +145,60 @@ external payable {
     // owner.safeTransferFrom(listedItem.seller, msg.sender, tokenId); --> syntactically wrong... 
     // has to be an object of Type: IERC721(address) --> correct syntax
     IERC721(nftAddress).safeTransferFrom(listedItem.seller, msg.sender, tokenId);
-    
-
+    // STATE CHANGES DONE PRIOR TO call safeTransferFrom() - Reentrancy-proof
+    emit ItemBought(msg.sender, nftAddress, tokenId, listedItem.price);
 }
+
+// 2 checks: Owner?, Listed?
+function cancelListing(address nftAddress, uint256 tokenId) 
+external
+isOwner(nftAddress, tokenId, msg.sender)
+isListed(nftAddress, tokenId)
+{
+    delete (s_listings[nftAddress][tokenId]);
+    emit ItemCanceled(msg.sender, nftAddress, tokenId);
+}
+
+// 2 checks: Owner?, Listed?
+function updatePrice(address nftAddress, uint256 tokenId, uint256 newPrice)
+external
+isOwner(nftAddress, tokenId, msg.sender)
+isListed(nftAddress, tokenId)
+{
+    s_listings[nftAddress][tokenId].price = newPrice;
+    emit ItemListed(msg.sender, nftAddress, tokenId, newPrice);
+    // equivalent to re-listing the NFT, hence, same ItemListed event
+}
+
+function withdrawProceeds() external {
+    uint256 proceeds = s_proceeds[msg.sender];
+    if (proceeds <= 0) {
+        revert NftMarketplace__NoProceedsYet();
+    }
+    // state change before proceeds-transfer
+    s_proceeds[msg.sender] = 0;
+    // Now, send the funds
+    (bool success, ) = payable(msg.sender).call{value: proceeds}("");
+
+    if(!success) {
+        revert NftMarketplace__Transactionfailed();
+    }
+}
+
+//////////////////////
+///Getter functions///
+//////////////////////
+
+function getListing (address nftAddress, uint256 tokenId) 
+external view returns (Listing memory) 
+{
+    return s_listings[nftAddress][tokenId];
+}
+
+function getProceeds(address seller) external view returns (uint256) {
+    return s_proceeds[seller];
+}
+
 }
 
 // A Decntralized NFT Marketplae
