@@ -9,7 +9,7 @@ error NftMarketplace__PriceMustBeAboveZero();
 error NftMarketplace__NotYetApprovedForMarketplace();
 // error code with args, no indexing
 error NftMarketplace__AlreadyListed(address nftAddress, uint256 tokenId);
-error NftMarketplace__NotOwner();
+error NftMarketplace__NeitherOwnerNorApproved();
 error NftMarketplace__NotListed();
 error NftMarketplace__PriceNotMet(address nftAddress, uint256 tokenId, uint256 price);
 error NftMarketplace__NoProceedsYet();
@@ -59,11 +59,13 @@ modifier notListed (address nftAddress, uint256 tokenId, address owner) {
     _;
 }
 // custom-defined due to nftAddress, tokenId
-modifier isOwner (address nftAddress, uint256 tokenId, address spender) {
+modifier isOwnerOrApproved (address nftAddress, uint256 tokenId, address spender) {
     IERC721 nft = IERC721(nftAddress);
+    // return 'Owner'
     address owner = nft.ownerOf(tokenId);
-    if (spender != owner) {
-        revert NftMarketplace__NotOwner();
+    // check for owner AND approvedAddress
+    if (spender != owner && spender!= nft.getApproved(tokenId)) {
+        revert NftMarketplace__NeitherOwnerNorApproved();
     }
     _;
 }
@@ -94,7 +96,7 @@ modifier isListed (address nftAddress, uint256 tokenId) {
 function listItem (address nftAddress, uint256 tokenId, uint256 price)
 external  
 notListed (nftAddress, tokenId, msg.sender) 
-isOwner (nftAddress, tokenId, msg.sender)
+isOwnerOrApproved (nftAddress, tokenId, msg.sender)
 {
     // ext., since other projects will invoke this f() from outside
     if(price <= 0) {
@@ -152,7 +154,7 @@ nonReentrant
 // 2 checks: Owner?, Listed?
 function cancelListing(address nftAddress, uint256 tokenId) 
 external
-isOwner(nftAddress, tokenId, msg.sender)
+isOwnerOrApproved(nftAddress, tokenId, msg.sender)
 isListed(nftAddress, tokenId)
 {
     delete (s_listings[nftAddress][tokenId]);
@@ -162,7 +164,7 @@ isListed(nftAddress, tokenId)
 // 2 checks: Owner?, Listed?
 function updatePrice(address nftAddress, uint256 tokenId, uint256 newPrice)
 external
-isOwner(nftAddress, tokenId, msg.sender)
+isOwnerOrApproved(nftAddress, tokenId, msg.sender)
 isListed(nftAddress, tokenId)
 {
     s_listings[nftAddress][tokenId].price = newPrice;
@@ -201,7 +203,7 @@ function getProceeds(address seller) external view returns (uint256) {
 
 }
 
-// A Decntralized NFT Marketplae
+// A Decntralized NFT Marketplace
 //     1. `listItem`  : List MFTs on Marketplace
 //     2. `buyItem`   : Buy the listed NFTs
 //     3. `cancelItem`: Cancel the Listed NFT
