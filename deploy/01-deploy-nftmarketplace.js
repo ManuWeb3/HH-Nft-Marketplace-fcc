@@ -9,13 +9,13 @@ module.exports = async function ({getNamedAccounts, deployments}) {     // get a
     const {deployer} = await getNamedAccounts()
 
     // const chainId = network.config.chainId
-
+    // args = [] -- optional
     // deploy now
     console.log("------Deploying NftMarketplace.sol--------")
     const nftMarketplace = await deploy("NftMarketplace", {
         from: deployer,
         log: true,
-        // args: args,
+        // args: args, 
         waitConfirmations: network.config.blockConfirmations || 1, 
     })
     console.log("------NftMarketplace.sol deployed!!--------")
