@@ -23,11 +23,11 @@ module.exports = async function ({getNamedAccounts, deployments}) {     // get a
     // Now, verifying...
     // Verify on Etherscan, if it's Rinkeby
     if(!developmentChains.includes(network.name) && process.env.ETHERSCAN_API_KEY) {
-        log("Verifying on Etherscan...")
+        console.log("Verifying on Testnet.Etherscan...")
         //args: []
         await verify(nftMarketplace.address)
         //  it takes address and args of the S/C as parameters
-        log("-----------Verified---------------")
+        console.log("-----------------")
     }
 }
 
